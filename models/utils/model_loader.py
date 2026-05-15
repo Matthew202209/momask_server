@@ -2,9 +2,12 @@ import os
 import torch
 import logging
 from os.path import join as pjoin
+
+from models.mask_transformer.transformer import MaskTransformer, ResidualTransformer
 from models.vq.model import RVQVAE, LengthEstimator
 
 logger = logging.getLogger("ray.serve")
+
 
 def load_vq_model(config):
     vq_model = RVQVAE(config,
@@ -36,8 +39,60 @@ def load_vq_model(config):
 
 def load_len_estimator(config):
     model = LengthEstimator(512, 50)
-    ckpt = torch.load(pjoin(config.checkpoints_dir, config.dataset_name, 'length_estimator', 'model', 'finest.tar'),
+    ckpt_path = pjoin(config.checkpoints_dir, config.dataset_name, 'length_estimator', 'model', 'finest.tar')
+    ckpt = torch.load(ckpt_path,
                       map_location=config.device)
     model.load_state_dict(ckpt['estimator'])
-    print(f'Loading Length Estimator from epoch {ckpt["epoch"]}!')
+    logger.info(f"Loading Length Estimator Completed! Path: {ckpt_path}")
     return model
+
+
+def load_trans_model(config):
+    clip_version = 'ViT-B/32'
+    t2m_transformer = MaskTransformer(code_dim=config.code_dim,
+                                      cond_mode='text',
+                                      latent_dim=config.latent_dim,
+                                      ff_size=config.ff_size,
+                                      num_layers=config.n_layers,
+                                      num_heads=config.n_heads,
+                                      dropout=config.dropout,
+                                      clip_dim=512,
+                                      cond_drop_prob=config.cond_drop_prob,
+                                      clip_version=clip_version,
+                                      opt=config)
+
+    ckpt_path = pjoin(config.checkpoints_dir, config.dataset_name, config.name, 'model', 'latest.tar')
+    ckpt = torch.load(ckpt_path, map_location='cpu')
+    model_key = 't2m_transformer' if 't2m_transformer' in ckpt else 'trans'
+    missing_keys, unexpected_keys = t2m_transformer.load_state_dict(ckpt[model_key], strict=False)
+    assert len(unexpected_keys) == 0
+    assert all([k.startswith('clip_model.') for k in missing_keys])
+    logger.info(f"Loading Transformer Completed! Path: {ckpt_path}")
+    return t2m_transformer
+
+
+def load_res_model(config):
+    clip_version = 'ViT-B/32'
+    res_transformer = ResidualTransformer(code_dim=config.code_dim,
+                                            cond_mode='text',
+                                            latent_dim=config.latent_dim,
+                                            ff_size=config.ff_size,
+                                            num_layers=config.n_layers,
+                                            num_heads=config.n_heads,
+                                            dropout=config.dropout,
+                                            clip_dim=512,
+                                            shared_codebook=config.shared_codebook,
+                                            cond_drop_prob=config.cond_drop_prob,
+                                            # codebook=vq_model.quantizer.codebooks[0] if opt.fix_token_emb else None,
+                                            share_weight=config.share_weight,
+                                            clip_version=clip_version,
+                                            opt=config)
+
+    ckpt_path = pjoin(config.checkpoints_dir, config.dataset_name, config.name, 'model', 'net_best_fid.tar')
+    ckpt = torch.load(ckpt_path,
+                      map_location=config.device)
+    missing_keys, unexpected_keys = res_transformer.load_state_dict(ckpt['res_transformer'], strict=False)
+    assert len(unexpected_keys) == 0
+    assert all([k.startswith('clip_model.') for k in missing_keys])
+    logger.info(f"Loading Residual Transformer  Completed! Path: {ckpt_path}")
+    return res_transformer

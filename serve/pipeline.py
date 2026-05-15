@@ -5,7 +5,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 
-from models.utils.model_loader import load_vq_model, load_len_estimator
+from models.utils.model_loader import load_vq_model, load_len_estimator, load_res_model, load_trans_model
 
 
 class Pipeline:
@@ -15,7 +15,6 @@ class Pipeline:
         self.res_model = load_res_model(config)
         self.t2m_transformer = load_trans_model(config)
         self.length_estimator = load_len_estimator(config)
-        self.converter = Joint2BVHConvertor()
 
         self.mean = np.load(pjoin(config.checkpoints_dir, config.dataset_name, config.vq_name, 'meta', 'mean.npy'))
         self.std = np.load(pjoin(config.checkpoints_dir, config.dataset_name, config.vq_name, 'meta', 'std.npy'))
